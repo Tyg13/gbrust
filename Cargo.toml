@@ -1,0 +1,6 @@
+[package]
+name = "gbrust"
+version = "0.1.0"
+authors = ["Tyg13 <animemachine13@gmail.com>"]
+
+[dependencies]

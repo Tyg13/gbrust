@@ -129,7 +129,17 @@ pub enum R8 {
 use std::slice::Iter;
 impl R8 {
     pub fn values() -> Iter<'static, R8> {
-        static REGISTERS: [R8; 9] = [R8::A, R8::B, R8::C, R8::D, R8::E, R8::H, R8::L, R8::M, R8::T];
+        static REGISTERS: [R8; 9] = [
+            R8::A,
+            R8::B,
+            R8::C,
+            R8::D,
+            R8::E,
+            R8::H,
+            R8::L,
+            R8::M,
+            R8::T,
+        ];
         REGISTERS.into_iter()
     }
 }
@@ -202,7 +212,9 @@ mod test {
                 cpu.set16(*reg, i);
                 assert_eq!(cpu.fetch16(*reg), i);
                 match *reg {
-                    R16::PC | R16::SP => {}
+                    R16::PC | R16::SP => {
+                        continue;
+                    }
                     R16::BC => {
                         let (high, low) = u16_to_u8s(i);
                         assert_eq!(cpu.fetch8(R8::B), high);

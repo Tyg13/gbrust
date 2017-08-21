@@ -3,6 +3,7 @@ struct CPU {
     reg8: [u8; 9],
     pc: u16,
     sp: u16,
+    flags: Flags
 }
 
 impl CPU {
@@ -12,6 +13,11 @@ impl CPU {
             reg8: [0; 9],
             pc: 0,
             sp: 0,
+            flags: Flags {
+                add: false,
+                half_carry: false,
+                carry: false,
+            }
         }
     }
     pub fn tick(&mut self, time: u8) {
@@ -89,6 +95,20 @@ impl CPU {
         let val = self.fetch8(from);
         self.set8(to, val);
     }
+    pub fn add(&mut self, fst: R8, snd: R8) {
+        use std::u8::MAX;
+        self.flags.add = true;
+        let (i, j) = (self.fetch8(fst), self.fetch8(snd));
+        let res = (i as u16) + (j as u16);
+        if res > (MAX as u16) {
+            self.flags.carry = true;
+            self.set8(R8::A, i.wrapping_add(j));
+        } else {
+            self.set8(R8::A, i + j);
+        } if detect_half_carry(i, j) {
+            self.flags.half_carry = true;
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -102,6 +122,12 @@ impl Clock {
         self.m += m;
         self.t += t;
     }
+}
+
+struct Flags {
+    add: bool,
+    carry: bool,
+    half_carry: bool
 }
 
 pub fn u8s_to_u16(high: u8, low: u8) -> u16 {
@@ -159,10 +185,36 @@ impl R16 {
         REGISTERS.into_iter()
     }
 }
+
+fn detect_half_carry(fst: u8, snd: u8) -> bool {
+    let (fst, snd) = ((fst >> 4), (snd >> 4));
+    (fst & snd) != 0
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     #[test]
+    fn can_detect_half_carry() {
+        use std::u8::MAX;
+        for i in 0..MAX {
+            for j in 0..MAX {
+                let (is, js) = (format!("{:#010b}", i), format!("{:#010b}", j));
+                let mut half_carry = false;
+                for k in 2..6 {
+                   let (n, m) = (is.chars().nth(k).unwrap(), js.chars().nth(k).unwrap()); 
+                   if n == '1' && m == '1' {
+                       half_carry = true;
+                   }
+                }
+                if half_carry {
+                    assert!(detect_half_carry(i, j));
+                } else {
+                    assert!(!detect_half_carry(i, j));
+                }
+            }
+        }
+    }
     fn u16_splitting_and_combining_rational() {
         use std::u16::MAX;
         for i in 0..MAX {
@@ -255,17 +307,27 @@ mod test {
             }
         }
     }
-    #[allow(non_snake_case)]
     #[test]
-    fn cpu_can_OR_and_AND() {
+    fn cpu_can_add_registers() {
         use std::u8::MAX;
+        let max = MAX as u16;
         let mut cpu = CPU::new();
         for i in 0..MAX {
             for j in 0..MAX {
                 cpu.set8(R8::A, i);
                 cpu.set8(R8::B, j);
-                assert_eq!(cpu.or(R8::B), i | j);
-                assert_eq!(cpu.and(R8::B), i & j);
+                cpu.add(R8::A, R8::B);
+                assert!(cpu.flags.add);
+                let res = (i as u16) + (j as u16);
+                if res > max {
+                    assert!(cpu.flags.carry);
+                    assert_eq!(cpu.fetch8(R8::A), i.wrapping_add(j));
+                } else {
+                    assert_eq!(cpu.fetch8(R8::A), i + j);
+                }
+                if detect_half_carry(i, j) {
+                    assert!(cpu.flags.half_carry);
+                }
             }
         }
     }

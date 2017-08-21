@@ -1,94 +1,87 @@
 struct CPU {
     clock: Clock,
-    registers: Registers,
+    reg8: [u8; 9],
+    pc: u16,
+    sp: u16,
 }
 
 impl CPU {
     pub fn new() -> Self {
         CPU {
             clock: Clock { m: 0, t: 0 },
-            registers: Registers {
-                a: 0,
-                b: 0,
-                c: 0,
-                d: 0,
-                e: 0,
-                h: 0,
-                l: 0,
-                pc: 0,
-                sp: 0,
-                m: 0,
-                t: 0,
-            },
+            reg8: [0; 9],
+            pc: 0,
+            sp: 0,
         }
     }
     pub fn tick(&mut self, time: u8) {
-        self.registers.m = time;
-        self.registers.t = time * 4;
+        self.set8(R8::M, time);
+        self.set8(R8::T, time * 4);
     }
     pub fn update_clock(&mut self) {
-        self.clock.update(self.registers.m, self.registers.t);
-        self.registers.m = 0;
-        self.registers.t = 0;
+        let (m, t) = (self.fetch8(R8::M), self.fetch8(R8::T));
+        self.clock.update(m, t);
+        self.set8(R8::M, 0);
+        self.set8(R8::T, 0);
     }
     pub fn and(&self, register: R8) -> u8 {
-        self.fetch8(register) & self.registers.a
+        self.fetch8(register) & self.fetch8(R8::A)
     }
     pub fn or(&self, register: R8) -> u8 {
-        self.fetch8(register) | self.registers.a
+        self.fetch8(register) | self.fetch8(R8::A)
     }
     pub fn fetch8(&self, register: R8) -> u8 {
         match register {
-            R8::A => self.registers.a,
-            R8::B => self.registers.b, 
-            R8::C => self.registers.c,
-            R8::D => self.registers.d, 
-            R8::E => self.registers.e,
-            R8::H => self.registers.h,
-            R8::L => self.registers.l,
-            R8::M => self.registers.m,
-            R8::T => self.registers.t,
+            R8::A => self.reg8[0],
+            R8::B => self.reg8[1], 
+            R8::C => self.reg8[2],
+            R8::D => self.reg8[3], 
+            R8::E => self.reg8[4],
+            R8::H => self.reg8[5],
+            R8::L => self.reg8[6],
+            R8::M => self.reg8[7],
+            R8::T => self.reg8[8],
         }
     }
     pub fn fetch16(&self, register: R16) -> u16 {
         match register {
-            R16::PC => self.registers.pc,
-            R16::SP => self.registers.sp,
-            R16::BC => u8s_to_u16(self.registers.b, self.registers.c),
-            R16::DE => u8s_to_u16(self.registers.d, self.registers.e),
-            R16::HL => u8s_to_u16(self.registers.h, self.registers.l),
+            R16::PC => self.pc,
+            R16::SP => self.sp,
+            R16::BC => u8s_to_u16(self.fetch8(R8::B), self.fetch8(R8::C)),
+            R16::DE => u8s_to_u16(self.fetch8(R8::D), self.fetch8(R8::E)),
+            R16::HL => u8s_to_u16(self.fetch8(R8::H), self.fetch8(R8::L)),
         }
     }
     pub fn set8(&mut self, register: R8, value: u8) {
         let reg = match register {
-            R8::A => &mut self.registers.a,
-            R8::B => &mut self.registers.b,
-            R8::C => &mut self.registers.c,
-            R8::D => &mut self.registers.d,
-            R8::E => &mut self.registers.e,
-            R8::H => &mut self.registers.h,
-            R8::L => &mut self.registers.l,
-            R8::M => &mut self.registers.m,
-            R8::T => &mut self.registers.t,
+            R8::A => &mut self.reg8[0],
+            R8::B => &mut self.reg8[1],
+            R8::C => &mut self.reg8[2],
+            R8::D => &mut self.reg8[3],
+            R8::E => &mut self.reg8[4],
+            R8::H => &mut self.reg8[5],
+            R8::L => &mut self.reg8[6],
+            R8::M => &mut self.reg8[7],
+            R8::T => &mut self.reg8[8],
         };
         *reg = value;
     }
     pub fn set16(&mut self, register: R16, value: u16) {
         let split = u16_to_u8_tuple(value);
         match register {
-            R16::PC => self.registers.pc = value,
-            R16::SP => self.registers.sp = value,
+            R16::PC => self.pc = value,
+            R16::SP => self.sp = value,
             R16::BC => {
-                self.registers.b = split.0;
-                self.registers.c = split.1;
+                self.set8(R8::B, split.0);
+                self.set8(R8::C, split.1);
             }
             R16::DE => {
-                self.registers.d = split.0;
-                self.registers.e = split.1;
+                self.set8(R8::D, split.0);
+                self.set8(R8::E, split.1);
             }
             R16::HL => {
-                self.registers.h = split.0;
-                self.registers.l = split.1;
+                self.set8(R8::H, split.0);
+                self.set8(R8::L, split.1);
             }
         }
     }
@@ -109,20 +102,6 @@ impl Clock {
         self.m += m;
         self.t += t;
     }
-}
-
-struct Registers {
-    a: u8,
-    b: u8,
-    c: u8,
-    d: u8,
-    e: u8,
-    h: u8,
-    l: u8,
-    pc: u16,
-    sp: u16,
-    m: u8,
-    t: u8,
 }
 
 pub fn u8s_to_u16(high: u8, low: u8) -> u16 {
@@ -188,54 +167,36 @@ mod test {
         assert_eq!(diff_m, 1); // m clock increases 1 per tick
     }
     #[test]
-    fn cpu_can_fetch_registers() {
+    fn cpu_can_fetch_and_set_8bit_registers() {
         let mut cpu = CPU::new();
-        cpu.registers.a = 1;
-        cpu.registers.b = 1;
-        cpu.registers.c = 1;
-        assert_eq!(cpu.registers.a, cpu.fetch8(R8::A));
-        assert_eq!(
-            u8s_to_u16(cpu.registers.b, cpu.registers.c),
-            cpu.fetch16(R16::BC)
-        );
-        assert_eq!(0b100000001, cpu.fetch16(R16::BC));
+        cpu.set8(R8::A, 10);
+        assert_eq!(cpu.fetch8(R8::A), 10);
     }
     #[test]
-    fn cpu_can_set_8bit_registers() {
+    fn cpu_can_fetch_and_set_16bit_registers() {
         let mut cpu1 = CPU::new();
-        cpu1.registers.a = 1;
-        let mut cpu2 = CPU::new();
-        cpu2.set8(R8::A, 1);
-        assert_eq!(cpu1.registers.a, cpu2.registers.a);
-    }
-    #[test]
-    fn cpu_can_set_16bit_registers() {
-        let mut cpu1 = CPU::new();
-        cpu1.registers.b = 1;
-        cpu1.registers.c = 1;
+        cpu1.set8(R8::B, 1);
+        cpu1.set8(R8::C, 1);
         let mut cpu2 = CPU::new();
         cpu2.set16(R16::BC, u8s_to_u16(1, 1));
-        assert_eq!(
-            cpu1.fetch16(R16::BC),
-            cpu2.fetch16(R16::BC)
-        );
+        assert_eq!(cpu1.fetch16(R16::BC), cpu2.fetch16(R16::BC));
         assert_eq!(0b100000001, cpu2.fetch16(R16::BC));
     }
     #[test]
     fn cpu_can_load_registers_to_registers() {
         let mut cpu = CPU::new();
-        cpu.registers.a = 1;
+        cpu.set8(R8::A, 1);
         cpu.load(R8::B, R8::A);
-        assert_eq!(cpu.registers.b, 1);
+        assert_eq!(cpu.fetch8(R8::B), 1);
     }
+    #[allow(non_snake_case)]
     #[test]
     fn cpu_can_OR_and_AND() {
         let mut cpu = CPU::new();
         for i in 0..1 {
             for j in 0..1 {
-
-                cpu.registers.a = i;
-                cpu.registers.b = j;
+                cpu.set8(R8::A, i);
+                cpu.set8(R8::B, j);
                 assert_eq!(cpu.or(R8::B), i | j);
                 assert_eq!(cpu.and(R8::B), i & j);
             }

@@ -1,6 +1,7 @@
 struct CPU {
     clock: Clock,
     registers: Registers,
+    flags: Flags
 }
 
 impl CPU {
@@ -20,6 +21,11 @@ impl CPU {
                 m: 0,
                 t: 0,
             },
+            flags: Flags {
+                add: false,
+                carry: false,
+                half_carry: false
+            }
         }
     }
     pub fn tick(&mut self, time: u8) {
@@ -96,6 +102,20 @@ impl CPU {
         let val = self.fetch8(from);
         self.set8(to, val);
     }
+    pub fn add(&mut self, fst: R8, snd: R8) {
+        use std::u8::MAX;
+        self.flags.add = true;
+        let (i, j) = (self.fetch8(fst), self.fetch8(snd));
+        let res = (i as u16) + (j as u16);
+        if res > (MAX as u16) {
+            self.flags.carry = true;
+            self.registers.a = i.wrapping_add(j);
+        } else {
+            self.registers.a = i + j;
+        } if detect_half_carry(i, j) {
+            self.flags.half_carry = true;
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -125,6 +145,12 @@ struct Registers {
     t: u8,
 }
 
+struct Flags {
+    add: bool,
+    carry: bool,
+    half_carry: bool
+}
+
 pub fn u8s_to_u16(high: u8, low: u8) -> u16 {
     let high = (high as u16) << 8;
     high + (low as u16)
@@ -134,6 +160,7 @@ pub fn u16_to_u8_tuple(wbyte: u16) -> (u8, u8) {
     ((wbyte >> 8) as u8, wbyte as u8)
 }
 
+#[derive(Clone, Copy)]
 pub enum R8 {
     A,
     B,
@@ -146,6 +173,7 @@ pub enum R8 {
     T,
 }
 
+#[derive(Clone, Copy)]
 pub enum R16 {
     PC,
     SP,
@@ -154,10 +182,35 @@ pub enum R16 {
     HL,
 }
 
+fn detect_half_carry(fst: u8, snd: u8) -> bool {
+    let (fst, snd) = ((fst >> 4), (snd >> 4));
+    (fst & snd) != 0
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     #[test]
+    fn can_detect_half_carry() {
+        use std::u8::MAX;
+        for i in 0..MAX {
+            for j in 0..MAX {
+                let (is, js) = (format!("{:#010b}", i), format!("{:#010b}", j));
+                let mut half_carry = false;
+                for k in 2..6 {
+                   let (n, m) = (is.chars().nth(k).unwrap(), js.chars().nth(k).unwrap()); 
+                   if n == '1' && m == '1' {
+                       half_carry = true;
+                   }
+                }
+                if half_carry {
+                    assert!(detect_half_carry(i, j));
+                } else {
+                    assert!(!detect_half_carry(i, j));
+                }
+            }
+        }
+    }
     fn u16_splitting_and_combining_rational() {
         use std::u16::MAX;
         for i in 0..MAX {
@@ -215,10 +268,7 @@ mod test {
         cpu1.registers.c = 1;
         let mut cpu2 = CPU::new();
         cpu2.set16(R16::BC, u8s_to_u16(1, 1));
-        assert_eq!(
-            cpu1.fetch16(R16::BC),
-            cpu2.fetch16(R16::BC)
-        );
+        assert_eq!(cpu1.fetch16(R16::BC), cpu2.fetch16(R16::BC));
         assert_eq!(0b100000001, cpu2.fetch16(R16::BC));
     }
     #[test]
@@ -230,14 +280,38 @@ mod test {
     }
     #[test]
     fn cpu_can_OR_and_AND() {
+        use std::u8::MAX;
         let mut cpu = CPU::new();
-        for i in 0..1 {
-            for j in 0..1 {
-
+        for i in 0..MAX {
+            for j in 0..MAX {
                 cpu.registers.a = i;
                 cpu.registers.b = j;
                 assert_eq!(cpu.or(R8::B), i | j);
                 assert_eq!(cpu.and(R8::B), i & j);
+            }
+        }
+    }
+    #[test]
+    fn cpu_can_add_registers() {
+        use std::u8::MAX;
+        let max = MAX as u16;
+        let mut cpu = CPU::new();
+        for i in 0..MAX {
+            for j in 0..MAX {
+                cpu.registers.a = i;
+                cpu.registers.b = j;
+                cpu.add(R8::A, R8::B);
+                assert!(cpu.flags.add);
+                let res = (i as u16) + (j as u16);
+                if res > max {
+                    assert!(cpu.flags.carry);
+                    assert_eq!(cpu.registers.a, i.wrapping_add(j));
+                } else {
+                    assert_eq!(cpu.registers.a, i + j);
+                }
+                if detect_half_carry(i, j) {
+                    assert!(cpu.flags.half_carry);
+                }
             }
         }
     }

@@ -67,7 +67,7 @@ impl CPU {
         *reg = value;
     }
     pub fn set16(&mut self, register: R16, value: u16) {
-        let split = u16_to_u8_tuple(value);
+        let split = u16_to_u8s(value);
         match register {
             R16::PC => self.pc = value,
             R16::SP => self.sp = value,
@@ -109,10 +109,11 @@ pub fn u8s_to_u16(high: u8, low: u8) -> u16 {
     high + (low as u16)
 }
 
-pub fn u16_to_u8_tuple(wbyte: u16) -> (u8, u8) {
+pub fn u16_to_u8s(wbyte: u16) -> (u8, u8) {
     ((wbyte >> 8) as u8, wbyte as u8)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum R8 {
     A,
     B,
@@ -125,6 +126,15 @@ pub enum R8 {
     T,
 }
 
+use std::slice::Iter;
+impl R8 {
+    pub fn values() -> Iter<'static, R8> {
+        static REGISTERS: [R8; 9] = [R8::A, R8::B, R8::C, R8::D, R8::E, R8::H, R8::L, R8::M, R8::T];
+        REGISTERS.into_iter()
+    }
+}
+
+#[derive(Clone, Copy)]
 pub enum R16 {
     PC,
     SP,
@@ -133,6 +143,12 @@ pub enum R16 {
     HL,
 }
 
+impl R16 {
+    pub fn values() -> Iter<'static, R16> {
+        static REGISTERS: [R16; 5] = [R16::PC, R16::SP, R16::BC, R16::DE, R16::HL];
+        REGISTERS.into_iter()
+    }
+}
 #[cfg(test)]
 mod test {
     use super::*;
@@ -140,7 +156,7 @@ mod test {
     fn u16_splitting_and_combining_rational() {
         use std::u16::MAX;
         for i in 0..MAX {
-            let (high, low) = u16_to_u8_tuple(i);
+            let (high, low) = u16_to_u8s(i);
             assert_eq!(i, u8s_to_u16(high, low));
         }
     }
@@ -150,7 +166,7 @@ mod test {
         for i in 0..MAX {
             for j in 0..MAX {
                 let combined = u8s_to_u16(i, j);
-                assert_eq!((i, j), u16_to_u8_tuple(combined));
+                assert_eq!((i, j), u16_to_u8s(combined));
             }
         }
     }
@@ -168,33 +184,72 @@ mod test {
     }
     #[test]
     fn cpu_can_fetch_and_set_8bit_registers() {
+        use std::u8::MAX;
         let mut cpu = CPU::new();
-        cpu.set8(R8::A, 10);
-        assert_eq!(cpu.fetch8(R8::A), 10);
+        for reg in R8::values() {
+            for i in 0..MAX {
+                cpu.set8(*reg, i);
+                assert_eq!(cpu.fetch8(*reg), i);
+            }
+        }
     }
     #[test]
     fn cpu_can_fetch_and_set_16bit_registers() {
-        let mut cpu1 = CPU::new();
-        cpu1.set8(R8::B, 1);
-        cpu1.set8(R8::C, 1);
-        let mut cpu2 = CPU::new();
-        cpu2.set16(R16::BC, u8s_to_u16(1, 1));
-        assert_eq!(cpu1.fetch16(R16::BC), cpu2.fetch16(R16::BC));
-        assert_eq!(0b100000001, cpu2.fetch16(R16::BC));
+        use std::u16::MAX;
+        let mut cpu = CPU::new();
+        for reg in R16::values() {
+            for i in 0..MAX {
+                cpu.set16(*reg, i);
+                assert_eq!(cpu.fetch16(*reg), i);
+                match *reg {
+                    R16::PC | R16::SP => {}
+                    R16::BC => {
+                        let (high, low) = u16_to_u8s(i);
+                        assert_eq!(cpu.fetch8(R8::B), high);
+                        assert_eq!(cpu.fetch8(R8::C), low);
+                    }
+                    R16::DE => {
+                        let (high, low) = u16_to_u8s(i);
+                        assert_eq!(cpu.fetch8(R8::D), high);
+                        assert_eq!(cpu.fetch8(R8::E), low);
+                    }
+                    R16::HL => {
+                        let (high, low) = u16_to_u8s(i);
+                        assert_eq!(cpu.fetch8(R8::H), high);
+                        assert_eq!(cpu.fetch8(R8::L), low);
+                    }
+                }
+            }
+        }
     }
     #[test]
     fn cpu_can_load_registers_to_registers() {
+        use std::u8::MAX;
         let mut cpu = CPU::new();
-        cpu.set8(R8::A, 1);
-        cpu.load(R8::B, R8::A);
-        assert_eq!(cpu.fetch8(R8::B), 1);
+        for from in R8::values() {
+            for to in R8::values() {
+                if from == to {
+                    continue;
+                }
+                for i in 0..MAX {
+                    for j in 0..MAX {
+                        cpu.set8(*from, i);
+                        cpu.set8(*to, j);
+                        cpu.load(*to, *from);
+                        assert_eq!(cpu.fetch8(*to), i);
+                        assert_eq!(cpu.fetch8(*to), cpu.fetch8(*from));
+                    }
+                }
+            }
+        }
     }
     #[allow(non_snake_case)]
     #[test]
     fn cpu_can_OR_and_AND() {
+        use std::u8::MAX;
         let mut cpu = CPU::new();
-        for i in 0..1 {
-            for j in 0..1 {
+        for i in 0..MAX {
+            for j in 0..MAX {
                 cpu.set8(R8::A, i);
                 cpu.set8(R8::B, j);
                 assert_eq!(cpu.or(R8::B), i | j);

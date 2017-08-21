@@ -3,7 +3,7 @@ struct CPU {
     reg8: [u8; 9],
     pc: u16,
     sp: u16,
-    flags: Flags
+    flags: Flags,
 }
 
 impl CPU {
@@ -17,7 +17,7 @@ impl CPU {
                 add: false,
                 half_carry: false,
                 carry: false,
-            }
+            },
         }
     }
     pub fn tick(&mut self, time: u8) {
@@ -105,7 +105,8 @@ impl CPU {
             self.set8(R8::A, i.wrapping_add(j));
         } else {
             self.set8(R8::A, i + j);
-        } if detect_half_carry(i, j) {
+        }
+        if detect_half_carry(i, j) {
             self.flags.half_carry = true;
         }
     }
@@ -127,7 +128,7 @@ impl Clock {
 struct Flags {
     add: bool,
     carry: bool,
-    half_carry: bool
+    half_carry: bool,
 }
 
 pub fn u8s_to_u16(high: u8, low: u8) -> u16 {
@@ -202,10 +203,10 @@ mod test {
                 let (is, js) = (format!("{:#010b}", i), format!("{:#010b}", j));
                 let mut half_carry = false;
                 for k in 2..6 {
-                   let (n, m) = (is.chars().nth(k).unwrap(), js.chars().nth(k).unwrap()); 
-                   if n == '1' && m == '1' {
-                       half_carry = true;
-                   }
+                    let (n, m) = (is.chars().nth(k).unwrap(), js.chars().nth(k).unwrap());
+                    if n == '1' && m == '1' {
+                        half_carry = true;
+                    }
                 }
                 if half_carry {
                     assert!(detect_half_carry(i, j));
@@ -314,19 +315,26 @@ mod test {
         let mut cpu = CPU::new();
         for i in 0..MAX {
             for j in 0..MAX {
-                cpu.set8(R8::A, i);
-                cpu.set8(R8::B, j);
-                cpu.add(R8::A, R8::B);
-                assert!(cpu.flags.add);
-                let res = (i as u16) + (j as u16);
-                if res > max {
-                    assert!(cpu.flags.carry);
-                    assert_eq!(cpu.fetch8(R8::A), i.wrapping_add(j));
-                } else {
-                    assert_eq!(cpu.fetch8(R8::A), i + j);
-                }
-                if detect_half_carry(i, j) {
-                    assert!(cpu.flags.half_carry);
+                for reg1 in R8::values() {
+                    for reg2 in R8::values() {
+                        cpu.set8(*reg1, i);
+                        cpu.set8(*reg2, j);
+                        let i = cpu.fetch8(*reg1);
+                        let j = cpu.fetch8(*reg2);
+                        cpu.add(*reg1, *reg2);
+                        assert!(cpu.flags.add);
+                        let res = (i as u16) + (j as u16);
+                        if res >= max {
+                            let (high, low) = u16_to_u8s(res);
+                            assert!(cpu.flags.carry);
+                            assert_eq!(cpu.fetch8(R8::A), low); 
+                        } else {
+                            assert_eq!(cpu.fetch8(R8::A), i + j);
+                        }
+                        if detect_half_carry(i, j) {
+                            assert!(cpu.flags.half_carry);
+                        }
+                    }
                 }
             }
         }

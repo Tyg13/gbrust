@@ -26,7 +26,8 @@ impl CPU {
     }
     pub fn update_clock(&mut self) {
         let (m, t) = (self.fetch8(R8::M), self.fetch8(R8::T));
-        self.clock.update(m, t);
+        self.clock.m += m;
+        self.clock.t += t;
         self.set8(R8::M, 0);
         self.set8(R8::T, 0);
     }
@@ -116,13 +117,6 @@ impl CPU {
 struct Clock {
     m: u8,
     t: u8,
-}
-
-impl Clock {
-    pub fn update(&mut self, m: u8, t: u8) {
-        self.m += m;
-        self.t += t;
-    }
 }
 
 struct Flags {
@@ -325,9 +319,9 @@ mod test {
                         assert!(cpu.flags.add);
                         let res = (i as u16) + (j as u16);
                         if res >= max {
-                            let (high, low) = u16_to_u8s(res);
+                            let (_, low) = u16_to_u8s(res);
                             assert!(cpu.flags.carry);
-                            assert_eq!(cpu.fetch8(R8::A), low); 
+                            assert_eq!(cpu.fetch8(R8::A), low);
                         } else {
                             assert_eq!(cpu.fetch8(R8::A), i + j);
                         }

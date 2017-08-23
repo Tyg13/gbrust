@@ -150,7 +150,6 @@ impl CPU {
     }
 }
 
-#[derive(Clone)]
 struct Clock {
     m: u8,
     t: u8,
@@ -185,7 +184,7 @@ pub enum R8 {
 
 use std::slice::Iter;
 impl R8 {
-    pub fn values() -> Iter<'static, R8> {
+    pub fn registers() -> Iter<'static, R8> {
         static REGISTERS: [R8; 7] = [R8::A, R8::B, R8::C, R8::D, R8::E, R8::H, R8::L];
         REGISTERS.into_iter()
     }
@@ -202,7 +201,7 @@ pub enum R16 {
 }
 
 impl R16 {
-    pub fn values() -> Iter<'static, R16> {
+    pub fn registers() -> Iter<'static, R16> {
         static REGISTERS: [R16; 5] = [R16::PC, R16::SP, R16::BC, R16::DE, R16::HL];
         REGISTERS.into_iter()
     }
@@ -261,13 +260,11 @@ mod test {
     #[test]
     fn cpu_can_tick() {
         let mut cpu = CPU::new();
-        cpu.tick(1);
-        let old_clock = cpu.clock.clone();
+        let (old_m, old_t) = (cpu.clock.m, cpu.clock.t);
+        cpu.tick(1); // Set M register to 1 and T register to 2
         cpu.update_clock(); // add M and T registers to clock.m and clock.t, then zero out M and T
         assert_eq!((cpu.m, cpu.t), (0, 0));
-        let new_clock = cpu.clock;
-        let diff_m = new_clock.m - old_clock.m;
-        let diff_t = new_clock.t - old_clock.t;
+        let (diff_m, diff_t) = (cpu.clock.m - old_m, cpu.clock.t - old_t);
         assert_eq!(diff_t, 4); // t clock increases 4 per tick
         assert_eq!(diff_m, 1); // m clock increases 1 per tick
     }
@@ -276,7 +273,7 @@ mod test {
     fn cpu_can_fetch_and_set_8bit_registers() {
         use std::u8::MAX;
         let mut cpu = CPU::new();
-        for reg in R8::values() {
+        for reg in R8::registers() {
             for i in 0..MAX {
                 cpu.set8(*reg, i);
                 assert_eq!((2, 8), (cpu.m, cpu.t)); // LD r, n should take 2 m-cycles
@@ -290,7 +287,7 @@ mod test {
     fn cpu_can_fetch_and_set_16bit_registers() {
         use std::u16::MAX;
         let mut cpu = CPU::new();
-        for reg in R16::values() {
+        for reg in R16::registers() {
             for i in 0..MAX {
                 cpu.set16(*reg, i);
                 assert_eq!((3, 12), (cpu.m, cpu.t)); // LD rr, nn should take 3 m-cycles
@@ -324,8 +321,8 @@ mod test {
     fn cpu_can_load_registers_to_registers() {
         use std::u8::MAX;
         let mut cpu = CPU::new();
-        for from in R8::values() {
-            for to in R8::values() {
+        for from in R8::registers() {
+            for to in R8::registers() {
                 for i in 0..MAX {
                     for j in 0..MAX {
                         cpu.set8(*from, i);
@@ -354,8 +351,8 @@ mod test {
         let mut cpu = CPU::new();
         for i in 0..MAX {
             for j in 0..MAX {
-                for reg1 in R8::values() {
-                    for reg2 in R8::values() {
+                for reg1 in R8::registers() {
+                    for reg2 in R8::registers() {
                         cpu.set8(*reg1, i);
                         cpu.set8(*reg2, j);
                         let i = cpu.fetch8(*reg1);
@@ -370,12 +367,23 @@ mod test {
                         } else {
                             assert_eq!(cpu.fetch8(*reg1), i + j);
                         }
-                        if detect_half_carry(i, j) {
-                            assert!(cpu.flags.half_carry);
-                        }
+                        assert_eq!(cpu.flags.half_carry, detect_half_carry(i, j));
                     }
                 }
             }
         }
+    }
+    #[test]
+    fn cpu_can_add_constants_to_registers() {
+        use std::u8::MAX as MAX8;
+        use std::u16::MAX as MAX16;
+        let mut cpu = CPU::new();
+        for i in 0..MAX8 {
+            for reg in R8::registers() {
+                cpu.set8(*reg, 0);
+                cpu.add8(*reg, R8::CONST(i));
+                assert_eq!(i, cpu.fetch8(*reg));
+            }
+        } 
     }
 }

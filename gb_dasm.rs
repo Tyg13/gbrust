@@ -1,6 +1,7 @@
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
+use std::io::Bytes;
 
 pub fn main() {
     let args: Vec<String> = env::args().collect();
@@ -10,38 +11,54 @@ pub fn main() {
     if !args[1].contains(".bin") {
         fail(Failure::ArgumentNotBinary);
     }
-    let file = File::open(&args[1]).unwrap();
-    let mut handle = file.bytes();
-    loop {
-        if let Some(val) = handle.next() {
-            let n = val.unwrap();
-            decode(n);
-        } else {
-            break;
-        }
+    let filename = &args[1];
+    let file = File::open(filename);
+    let handle = match file {
+        Ok(result) => result,
+        Err(_) => fail(Failure::FileReadError(filename)),
+    };
+    println!("{}", dissasm(&mut handle.bytes()));
+}
+fn dissasm(bytes: &mut Bytes<File>) -> String {
+    let mut output = String::from("");
+    let mut line = 0;
+    while let Some(val) = bytes.next() {
+        let result = match val.ok().unwrap() {
+            0x20 => {
+                let arg = unwrap(bytes.next());
+                format!("JR NZ, {:02X}", arg)
+            }
+            0x21 => {
+                let (arg1, arg2) = get_next_two(bytes);
+                format!("LD HL, ${:02X}{:02X}", arg2, arg1)
+            }
+            0x31 => {
+                let (arg1, arg2) = get_next_two(bytes);
+                format!("LD SP, ${:02X}{:02X}", arg2, arg1)
+            }
+            0x32 => format!("LD (HL-), A"),
+            0xAF => format!("XOR A"),
+            0xCB => format!("CB {:#2X}", bytes.next().unwrap().ok().unwrap()), 
+            n => format!("{:#2X}", n),
+        };
+        output = format!("{}\n{:04X}: {}", output, line, result);
+        line += 1;
     }
+    output
+}
+fn get_next_two(bytes: &mut Bytes<File>) -> (u8, u8) {
+    (unwrap(bytes.next()), unwrap(bytes.next()))
+}
+fn unwrap(bytes: std::option::Option<std::result::Result<u8, std::io::Error>>) -> u8 {
+    bytes.unwrap().ok().unwrap()
 }
 
-fn decode(opcode: u8) {
-    match opcode {
-        0x0C => print!("\nINC C\n"),
-        0x0E => print!("\nLD C, "),
-        0xE2 => print!("\nLD (C), A\n"),
-        0x3E => print!("\nLD A, "),
-        0x32 => print!("\nLD (HL-), A\n"),
-        0x31 => print!("\nLD SP, "),
-        0x21 => print!("\nLD HL, "),
-        0x20 => print!("\nJR NZ, "),
-        0xAF => print!("\nXOR A "),
-        n => print!("{:02X} ", n),
-    }
-}
-
-fn fail(error: Failure) {
+fn fail(error: Failure) -> ! {
     use Failure::*;
     let err = match error {
-        NotEnoughArgs => "Not enough arguments",
-        ArgumentNotBinary => "Input must be a binary file .bin",
+        NotEnoughArgs => String::from("Not enough arguments"),
+        ArgumentNotBinary => String::from("Input must be a binary file .bin"),
+        FileReadError(file) => format!("Not able to read input file {}", file),
     };
     println!("ERR: {}\n", err);
     println!("Usage: gd_dasm FILE");
@@ -49,7 +66,8 @@ fn fail(error: Failure) {
     std::process::exit(1);
 }
 
-enum Failure {
+enum Failure<'a> {
     NotEnoughArgs,
     ArgumentNotBinary,
+    FileReadError(&'a str),
 }

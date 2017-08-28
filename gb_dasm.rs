@@ -4,21 +4,22 @@ use std::io::prelude::*;
 use std::io::Bytes;
 
 macro_rules! advance {
-    ($stream:expr, $instruction:expr, $bytes:expr) => {{
+    ($stream:expr, $instruction:expr) => {{
         let stream: &mut Bytes<File> = $stream;
         let instruction: &str = $instruction;
-        let bytes: u16 = $bytes;
+        let bytes = instruction.matches("$").count() + 1;
         let result = match bytes {
             1 => format!("{}", instruction),
             2 => {
-                let arg = unwrap(stream.next());
-                format!("{}${:02X}", instruction, arg)
+                let arg = format!("{:02X}", unwrap(stream.next()));
+                instruction.replace("$0", &arg)
             }
             3 => {
                 let (arg1, arg2) = get_next_two(stream);
-                format!("{} ${:02X}{:02X}", instruction, arg2, arg1)
+                let (arg1, arg2) = (format!("{:02X}", arg1), format!("{:02X}", arg2));
+                instruction.replace("$0", &arg1).replace("$1",&arg2)
             }
-            _ => unreachable!(),
+            _ => panic!("BYTES: {}", bytes),
         };
         (bytes, result)
     }}
@@ -50,40 +51,29 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
         // The address to jump to will be CURRENT - (0xFE - $BLAH)
         // For example, JR NZ,$FE will jump constantly to itself, locking up
         let (bytes, result) = match byte {
-            0x00 => advance!(stream, "NOP", 1),
-            0x07 => advance!(stream, "RLCA", 1),
-            0x17 => advance!(stream, "RLA", 1),
-            0x27 => advance!(stream, "DAA", 1),
-            0x37 => advance!(stream, "SCF", 1),
-            0x10 => advance!(stream, "STOP", 1),
-            0x76 => advance!(stream, "HALT", 1),
-            0xCB => advance!(stream, "CB ", 2), 
-            0xF0 => {
-                let val = unwrap(stream.next());
-                (2, format!("LDH A,(${:02X})", val))
-            }
-            0xE0 => {
-                let val = unwrap(stream.next());
-                (2, format!("LDH (${:02X}),A", val))
-            }
-            0xEA => {
-                let (arg1, arg2) = get_next_two(stream);
-                (3, format!("LD (${:02X}{:02X}),A", arg2, arg1))
-            }
-            0x08 => {
-                let (arg1, arg2) = get_next_two(stream);
-                (3, format!("LD (${:02X}{:02X}),SP", arg2, arg1))
-            }
-            0xE2 => advance!(stream, "LD (C),A", 1),
-            0xF2 => advance!(stream, "LD A,(C)", 1),
-            0x2A => advance!(stream, "LD A,(HL+)", 1),
-            0x3A => advance!(stream, "LD A,(HL-)", 1),
-            0x22 => advance!(stream, "LD (HL+),A", 1),
-            0x32 => advance!(stream, "LD (HL-),A", 1),
-            0xC9 => advance!(stream, "RET", 1),
-            0xCC => advance!(stream, "CALL Z,", 3),
-            0xCD => advance!(stream, "CALL ", 3),
-            0xDC => advance!(stream, "CALL C,", 3),
+            0x00 => advance!(stream, "NOP"),
+            0x07 => advance!(stream, "RLCA"),
+            0x17 => advance!(stream, "RLA"),
+            0x27 => advance!(stream, "DAA"),
+            0x37 => advance!(stream, "SCF"),
+            0x10 => advance!(stream, "STOP"),
+            0x76 => advance!(stream, "HALT"),
+            0xCB => advance!(stream, "CB {}"), 
+            0xF3 => advance!(stream, "DI"),
+            0xF0 => advance!(stream, "LDH A,($0)"),
+            0xE0 => advance!(stream, "LDH ($0),A"),
+            0xEA => advance!(stream, "LD ($0),A"),
+            0x08 => advance!(stream, "LD ($1$0),SP"),
+            0xE2 => advance!(stream, "LD (C),A"),
+            0xF2 => advance!(stream, "LD A,(C)"),
+            0x2A => advance!(stream, "LD A,(HL+)"),
+            0x3A => advance!(stream, "LD A,(HL-)"),
+            0x22 => advance!(stream, "LD (HL+),A"),
+            0x32 => advance!(stream, "LD (HL-),A"),
+            0xC9 => advance!(stream, "RET"),
+            0xCC => advance!(stream, "CALL Z,$1$0"),
+            0xCD => advance!(stream, "CALL $1$0"),
+            0xDC => advance!(stream, "CALL C,$1$0"),
             n if in_range(n, 0x1, 0x1, 0xC, 0xF) => {
                 let (upper, _) = get_nibbles(n);
                 let register = match upper {
@@ -93,7 +83,7 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
                     0xF => "AF",
                     _ => unreachable!(),
                 };
-                advance!(stream, &format!("POP {}", register), 1)
+                advance!(stream, &format!("POP {}", register))
             }
             n if in_range(n, 0x5, 0x5, 0xC, 0xF) => {
                 let (upper, _) = get_nibbles(n);
@@ -104,7 +94,7 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
                     0xF => "AF",
                     _ => unreachable!(),
                 };
-                advance!(stream, &format!("PUSH {}", register), 1)
+                advance!(stream, &format!("PUSH {}", register))
             }
             n if in_range(n, 0xE, 0xE, 0xC, 0xF) => {
                 let (upper, _) = get_nibbles(n);
@@ -115,7 +105,7 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
                     0xF => "CP ",
                     _ => unreachable!(),
                 };
-                advance!(stream, instruction, 2)
+                advance!(stream, &format!("{}$0", instruction))
             }
             n if in_range(n, 0xA, 0xB, 0x0, 0x3) => {
                 let (upper, lower) = get_nibbles(n);
@@ -127,8 +117,8 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
                     _ => unreachable!(),
                 };
                 match lower {
-                    0xA => advance!(stream, &format!("LD A,({})", register), 1),
-                    0xB => advance!(stream, &format!("DEC {}", register), 1),
+                    0xA => advance!(stream, &format!("LD A,({})", register)),
+                    0xB => advance!(stream, &format!("DEC {}", register)),
                     _ => unreachable!(),
                 }
             }
@@ -142,9 +132,9 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
                     _ => unreachable!(),
                 };
                 match lower {
-                    0xC => advance!(stream, &format!("INC {}", register), 1),
-                    0xD => advance!(stream, &format!("DEC {}", register), 1),
-                    0xE => advance!(stream, &format!("LD {},", register), 2),
+                    0xC => advance!(stream, &format!("INC {}", register)),
+                    0xD => advance!(stream, &format!("DEC {}", register)),
+                    0xE => advance!(stream, &format!("LD {},$0", register)),
                     _ => unreachable!(),
                 }
             }
@@ -168,7 +158,7 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
                     0x7 => "A",
                     _ => unreachable!(),
                 };
-                advance!(stream, &format!("{}{}", instruction, register), 1)
+                advance!(stream, &format!("{}{}", instruction, register))
             }
             n if in_range(n, 0x8, 0xF, 0x8, 0xB) => {
                 let (upper, lower) = get_nibbles(n);
@@ -190,7 +180,7 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
                     0xF => "A",
                     _ => unreachable!(),
                 };
-                advance!(stream, &format!("{}{}", instruction, register), 1)
+                advance!(stream, &format!("{}{}", instruction, register))
             }
             n if in_range(n, 0x2, 0x3, 0x0, 0x3) => {
                 let (upper, lower) = get_nibbles(n);
@@ -202,8 +192,8 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
                     _ => unreachable!(),
                 };
                 match lower {
-                    0x2 => advance!(stream, &format!("LD ({}),A", to), 1),
-                    0x3 => advance!(stream, &format!("INC {}", to), 1),
+                    0x2 => advance!(stream, &format!("LD ({}),A", to)),
+                    0x3 => advance!(stream, &format!("INC {}", to)),
                     _ => unreachable!(),
                 }
             }
@@ -216,7 +206,7 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
                     0x3 => "SP",
                     _ => unreachable!(),
                 };
-                advance!(stream, &format!("LD {},", to), 3)
+                advance!(stream, &format!("LD {},$1$0", to))
             }
             n if in_range(n, 0x8, 0xF, 0x4, 0x7) => {
                 let (upper, lower) = get_nibbles(n);
@@ -238,7 +228,7 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
                     0xF => "A",
                     _ => unreachable!(),
                 };
-                advance!(stream, &format!("LD {},{}", to, from), 1)
+                advance!(stream, &format!("LD {},{}", to, from))
             } 
             n if in_range(n, 0x0, 0x7, 0x4, 0x7) => {
                 let (upper, lower) = get_nibbles(n);
@@ -260,7 +250,7 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
                     7 => "A",
                     _ => unreachable!(), 
                 };
-                advance!(stream, &format!("LD {},{}", to, from), 1)
+                advance!(stream, &format!("LD {},{}", to, from))
             }
             n if in_range(n, 0x4, 0x6, 0x0, 0x3) => {
                 let (upper, lower) = get_nibbles(n);
@@ -272,9 +262,9 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
                     _ => unreachable!(),
                 };
                 match lower {
-                    4 => advance!(stream, &format!("INC {}", register), 1),
-                    5 => advance!(stream, &format!("DEC {}", register), 1),
-                    6 => advance!(stream, &format!("LD {},", register), 2),
+                    4 => advance!(stream, &format!("INC {}", register)),
+                    5 => advance!(stream, &format!("DEC {}", register)),
+                    6 => advance!(stream, &format!("LD {},$0", register)),
                     _ => unreachable!(),
                 }
             }
@@ -287,10 +277,7 @@ fn dissasm(stream: &mut Bytes<File>) -> String {
 }
 fn in_range(n: u8, left: u8, right: u8, top: u8, bottom: u8) -> bool {
     let (upper, lower) = get_nibbles(n);
-    lower >= left &&
-    lower <= right &&
-    upper >= top &&
-    upper <= bottom
+    lower >= left && lower <= right && upper >= top && upper <= bottom
 }
 fn get_nibbles(n: u8) -> (u8, u8) {
     let upper = n >> 4;

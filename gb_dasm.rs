@@ -38,14 +38,14 @@ impl<'a> Disassembly<'a> {
         self.stream.next()
     }
     pub fn add_line(&mut self, instruction: String) {
-        let number_of_args = instruction.matches("$").count() + 1;
+        let number_of_args = instruction.matches("$").count();
         let line = match number_of_args {
-            1 => format!("{}", instruction),
-            2 => {
+            0 => format!("{}", instruction),
+            1 => {
                 let arg = format!("${:02X}", self.unwrap_next());
                 instruction.replace("$0", &arg)
             }
-            3 => {
+            2 => {
                 let (arg1, arg2) = self.unwrap_next_two();
                 let (arg1, arg2) = (format!("{:02X}", arg1), format!("${:02X}", arg2));
                 instruction.replace("$0", &arg1).replace("$1", &arg2)

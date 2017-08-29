@@ -37,13 +37,28 @@ impl<'a> Disassembly<'a> {
     pub fn next(&mut self) -> std::option::Option<std::result::Result<u8, std::io::Error>> {
         self.stream.next()
     }
-    pub fn add_line(&mut self, instruction: String) {
+    pub fn add_line(&mut self, instruction: String, byte: u8) {
+        let is_jump = instruction.matches("JR").count() == 1;
         let number_of_args = instruction.matches("$").count();
         let line = match number_of_args {
             0 => format!("{}", instruction),
             1 => {
-                let arg = format!("${:02X}", self.unwrap_next());
-                instruction.replace("$0", &arg)
+                let arg = self.unwrap_next();
+                if is_jump {
+                    let offset;
+                    let address;
+                    if arg <= 0x7F {
+                        offset = (arg + 2) as usize;
+                        address = self.bytes + offset;
+                    } else {
+                        offset = (0xFE - arg) as usize;
+                        address = self.bytes - offset;
+                    }
+                    instruction.replace("$0", &format!("${:04X}", address))
+                } else {
+                    let _arg = format!("${:02X}", arg);
+                    instruction.replace("$0", &_arg)
+                }
             }
             2 => {
                 let (arg1, arg2) = self.unwrap_next_two();
@@ -53,7 +68,13 @@ impl<'a> Disassembly<'a> {
             _ => panic!("# OF ARGS: {}", number_of_args),
         };
         let bytes = number_of_args + 1;
-        self.contents = format!("{}{:04X}: {}\n", self.contents, self.bytes, line);
+        self.contents = format!(
+            "{}{:04X}: {: <15}{:#04X}\n",
+            self.contents,
+            self.bytes,
+            line,
+            byte
+        );
         self.bytes += bytes;
     }
     pub fn unwrap_next(&mut self) -> u8 {
@@ -68,10 +89,6 @@ fn dissasm(bytes: &mut Bytes<File>) -> String {
     let disassembly = &mut Disassembly::new(bytes);
     while let Some(val) = disassembly.next() {
         let byte = val.ok().unwrap();
-        // NOTE When you see a jump instruction, e.g
-        // JR NZ,$BLAH
-        // The address to jump to will be CURRENT - (0xFE - $BLAH)
-        // For example, JR NZ,$FE will jump constantly to itself, locking up
         let instruction: String = match byte {
             0x00 => String::from("NOP"),
             0x07 => String::from("RLCA"),
@@ -96,6 +113,8 @@ fn dissasm(bytes: &mut Bytes<File>) -> String {
             0xCC => String::from("CALL Z,$1$0"),
             0xCD => String::from("CALL $1$0"),
             0xDC => String::from("CALL C,$1$0"),
+            0x20 => String::from("JR NZ,$0"),
+            0x30 => String::from("JR NC,$0"),
             n if in_range(n, 0x1, 0x1, 0xC, 0xF) => {
                 let (upper, _) = get_nibbles(n);
                 let register = match upper {
@@ -292,7 +311,7 @@ fn dissasm(bytes: &mut Bytes<File>) -> String {
             }
             n => format!("{:#04X}", n), 
         };
-        disassembly.add_line(instruction);
+        disassembly.add_line(instruction, byte);
     }
     let result = disassembly.contents.clone();
     result

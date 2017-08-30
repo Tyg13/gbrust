@@ -45,15 +45,10 @@ impl<'a> Disassembly<'a> {
             1 => {
                 let arg = self.unwrap_next();
                 if is_jump {
-                    let offset;
-                    let address;
-                    if arg <= 0x7F {
-                        offset = (arg + 2) as usize;
-                        address = self.bytes + offset;
-                    } else {
-                        offset = (0xFE - arg) as usize;
-                        address = self.bytes - offset;
-                    }
+                    // Interpret byte as signed, then add 2 since 0xFE = -2,
+                    // and 0xFE corresponds to a jump offset of 0
+                    let offset = (arg as i8) + 2;
+                    let address = (self.bytes as i16) + (offset as i16);
                     instruction.replace("$0", &format!("${:04X}", address))
                 } else {
                     let _arg = format!("${:02X}", arg);

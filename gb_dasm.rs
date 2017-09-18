@@ -71,27 +71,26 @@ impl<'a> Disassembly<'a> {
         if !is_data {
             self.data_ends = 0;
         }
-        let is_call = instruction.matches("CALL").count() == 1;
-        let is_absolute_jump = instruction.matches("JP").count() == 1;
-        let is_relative_jump = instruction.matches("JR").count() == 1;
+        let is_call = instruction.contains("CALL");
+        let is_absolute_jump = instruction.contains("JP");
+        let is_relative_jump = instruction.contains("JR");
         let number_of_args = instruction.matches("#").count();
         if is_data {
             let mut line = String::new();
             let mut data_bytes = 0;
             // Break up data in 16 byte chunks
             for n in 0..16 {
-                if (self.bytes + data_bytes) >= self.data_ends {
-                    break;
-                }
                 if n == 0 {
                     line.push_str(&format!(".db ${:02X}", byte));
                 } else {
                     line.push_str(&format!("${:02X}", self.unwrap_next()));
                 }
-                if n != 15 {
+                data_bytes += 1;
+                if (self.bytes + data_bytes) >= self.data_ends {
+                    break;
+                } else if n != 15 {
                     line.push_str(", ");
                 }
-                data_bytes += 1;
             }
             println!("{:04X}: {}", self.bytes, line);
             self.bytes += data_bytes;
